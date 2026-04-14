@@ -18,7 +18,9 @@ async function searchDigiKey(q){
     const d=await s.json();
     const results=(d.Products||[]).map(p=>{
       const v=(p.ProductVariations||[])[0]||{};
-      return{source:'digikey',partNumber:p.ManufacturerProductNumber,manufacturer:p.Manufacturer?.Name||'',description:p.Description?.ProductDescription||'',packageType:v.PackageType?.Name||'',spq:v.StandardPackage||null,moq:v.MinimumOrderQuantity||1,quantity:v.QuantityAvailableforPackageType||p.QuantityAvailable||0,status:p.ProductStatus?.Status||'Active',leadWeeks:p.ManufacturerLeadWeeks||null,rohsStatus:p.Classifications?.RohsStatus||''};
+      const pricing=(v.StandardPricing||[]).map(pb=>({qty:pb.BreakQuantity,price:pb.UnitPrice})).sort((a,b)=>a.qty-b.qty);
+      const unitPrice=typeof p.UnitPrice==='number'?p.UnitPrice:(pricing[0]?pricing[0].price:null);
+      return{source:'digikey',partNumber:p.ManufacturerProductNumber,manufacturer:p.Manufacturer?.Name||'',description:p.Description?.ProductDescription||'',packageType:v.PackageType?.Name||'',spq:v.StandardPackage||null,moq:v.MinimumOrderQuantity||1,quantity:v.QuantityAvailableforPackageType||p.QuantityAvailable||0,status:p.ProductStatus?.Status||'Active',leadWeeks:p.ManufacturerLeadWeeks||null,rohsStatus:p.Classifications?.RohsStatus||'',unitPrice,priceBreaks:pricing,currency:'USD'};
     });
     results.sort((a,b)=>b.quantity-a.quantity);
     return{source:'digikey',count:results.length,results};
@@ -36,7 +38,10 @@ async function searchMouser(q){
       const qty=parseInt((p.AvailabilityInStock||p.Availability||'0').toString().replace(/[^\d]/g,''),10)||0;
       const moq=parseInt(p.Min||'1',10)||1;
       const spq=parseInt(p.Mult||p.StandardCost||'0',10)||null;
-      return{source:'mouser',partNumber:p.ManufacturerPartNumber||'',manufacturer:p.Manufacturer||'',description:p.Description||'',packageType:p.Package||'',spq,moq,quantity:qty,status:p.LifecycleStatus||'Active',leadWeeks:p.LeadTime?parseInt(p.LeadTime,10)||null:null,rohsStatus:p.ROHSStatus||'',mouserPartNumber:p.MouserPartNumber||'',productUrl:p.ProductDetailUrl||''};
+      const pricing=(p.PriceBreaks||[]).map(pb=>({qty:pb.Quantity,price:parseFloat(String(pb.Price||'').replace(/[^\d.]/g,''))||0})).filter(pb=>pb.price>0).sort((a,b)=>a.qty-b.qty);
+      const currency=(p.PriceBreaks&&p.PriceBreaks[0]&&p.PriceBreaks[0].Currency)||'USD';
+      const unitPrice=pricing[0]?pricing[0].price:null;
+      return{source:'mouser',partNumber:p.ManufacturerPartNumber||'',manufacturer:p.Manufacturer||'',description:p.Description||'',packageType:p.Package||'',spq,moq,quantity:qty,status:p.LifecycleStatus||'Active',leadWeeks:p.LeadTime?parseInt(p.LeadTime,10)||null:null,rohsStatus:p.ROHSStatus||'',mouserPartNumber:p.MouserPartNumber||'',productUrl:p.ProductDetailUrl||'',unitPrice,priceBreaks:pricing,currency};
     });
     results.sort((a,b)=>b.quantity-a.quantity);
     return{source:'mouser',count:results.length,results};
@@ -45,7 +50,7 @@ async function searchMouser(q){
 
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD;
 
-function stripSource(arr){return (arr||[]).map(p=>{const{source,...rest}=p;return rest;});}
+function stripSensitive(arr){return (arr||[]).map(p=>{const{source,unitPrice,priceBreaks,currency,...rest}=p;return rest;});}
 
 module.exports=async(req,res)=>{
   res.setHeader('Access-Control-Allow-Origin','*');
@@ -66,7 +71,7 @@ module.exports=async(req,res)=>{
     return res.json({keyword:q,sources:{digikey,mouser},count:combined.length,results:combined});
   }
 
-  const combined=[...stripSource(digikey.results),...stripSource(mouser.results)];
+  const combined=[...stripSensitive(digikey.results),...stripSensitive(mouser.results)];
   combined.sort((a,b)=>(b.quantity||0)-(a.quantity||0));
   res.json({keyword:q,count:combined.length,results:combined});
 };
