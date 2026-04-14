@@ -58,5 +58,6 @@ app.get('/admin/search',async(req,res)=>{
     res.json({keyword:q,count:results.length,results});
   }catch(err){res.status(500).json({error:err.message});}
 });
+app.get('/', (req,res)=>res.sendFile(__dirname+'/public/index.html'));
 app.get('/health',(req,res)=>res.json({status:'ok'}));
 app.listen(3000,()=>console.log('✅ 信東電子後端啟動！\n   http://localhost:3000/search?q=STM32F103C8T6'));
