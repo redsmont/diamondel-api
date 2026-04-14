@@ -43,16 +43,30 @@ async function searchMouser(q){
   }catch(err){return{source:'mouser',error:err.message,results:[]};}
 }
 
+const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD;
+
+function stripSource(arr){return (arr||[]).map(p=>{const{source,...rest}=p;return rest;});}
+
 module.exports=async(req,res)=>{
   res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type, x-admin-token');
+  res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');
+  if(req.method==='OPTIONS')return res.status(204).end();
+
   const q=(req.query.q||'').trim();
-  if(!q)return res.json({error:'請輸入料號',sources:{}});
+  if(!q)return res.json({error:'請輸入料號',count:0,results:[]});
+
+  const token=req.headers['x-admin-token']||'';
+  const isAdmin=!!ADMIN_PASSWORD && token===ADMIN_PASSWORD;
+
   const [digikey,mouser]=await Promise.all([searchDigiKey(q),searchMouser(q)]);
-  const combined=[...(digikey.results||[]),...(mouser.results||[])];
-  res.json({
-    keyword:q,
-    sources:{digikey,mouser},
-    count:combined.length,
-    results:combined
-  });
+
+  if(isAdmin){
+    const combined=[...(digikey.results||[]),...(mouser.results||[])];
+    return res.json({keyword:q,sources:{digikey,mouser},count:combined.length,results:combined});
+  }
+
+  const combined=[...stripSource(digikey.results),...stripSource(mouser.results)];
+  combined.sort((a,b)=>(b.quantity||0)-(a.quantity||0));
+  res.json({keyword:q,count:combined.length,results:combined});
 };
