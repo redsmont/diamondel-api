@@ -1,5 +1,24 @@
-const {kv}=require('@vercel/kv');
+const Redis=require('ioredis');
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD;
+
+// Module-scope client; reused across warm invocations
+let client=null;
+function getClient(){
+  if(client)return client;
+  const url=process.env.REDIS_URL||process.env.KV_URL;
+  if(!url)return null;
+  client=new Redis(url,{
+    maxRetriesPerRequest:2,
+    connectTimeout:5000,
+    enableReadyCheck:false,
+    lazyConnect:false,
+    tls:/^rediss:/.test(url)?{}:undefined
+  });
+  client.on('error',e=>{console.error('[redis]',e.message);});
+  return client;
+}
+
+function redisAvailable(){return !!(process.env.REDIS_URL||process.env.KV_URL);}
 
 function setCors(res){
   res.setHeader('Access-Control-Allow-Origin','*');
@@ -9,10 +28,6 @@ function setCors(res){
 
 function isAdmin(req){
   return !!ADMIN_PASSWORD && (req.headers['x-admin-token']||'')===ADMIN_PASSWORD;
-}
-
-function kvAvailable(){
-  return !!(process.env.KV_REST_API_URL||process.env.KV_URL||process.env.REDIS_URL);
 }
 
 // RFC 4180-ish single line parser (handles quoted values with embedded commas)
@@ -35,7 +50,8 @@ function parseCsvLine(line){
 
 // Normalize header name to a canonical internal key
 function canonicalHeader(h){
-  const k=h.toLowerCase().replace(/[\s()_\-\/]+/g,'');
+  const raw=h.trim();
+  const k=raw.toLowerCase().replace(/[\s()_\-\/]+/g,'');
   if(k==='partno'||k==='pn'||k==='part')return 'partNumber';
   if(k==='mfg'||k==='mfr'||k==='manufacturer'||k==='brand')return 'manufacturer';
   if(k==='dc'||k==='datecode')return 'dateCode';
@@ -44,7 +60,7 @@ function canonicalHeader(h){
   if(k.startsWith('date')&&k!=='datecode')return 'dateLogged';
   if(k.startsWith('descrip'))return 'description';
   if(k==='supply'||k==='supplier'||k==='vendor')return 'supplier';
-  if(h.trim()==='料號'||k==='internalpn'||k==='pnalt')return 'internalPn';
+  if(raw==='料號'||k==='internalpn'||k==='pnalt')return 'internalPn';
   return null; // unknown, ignore
 }
 
@@ -83,29 +99,38 @@ module.exports=async(req,res)=>{
   setCors(res);
   if(req.method==='OPTIONS')return res.status(204).end();
   if(!isAdmin(req))return res.status(401).json({error:'Unauthorized'});
-  if(!kvAvailable())return res.status(503).json({error:'KV not configured. Set up Vercel KV/Redis storage for this project.'});
+  if(!redisAvailable())return res.status(503).json({error:'Redis not configured. Set REDIS_URL on Vercel and redeploy.'});
+
+  const r=getClient();
+  if(!r)return res.status(503).json({error:'Redis client init failed'});
 
   try{
     if(req.method==='GET'){
-      const items=(await kv.get('inventory:items'))||[];
-      const updatedAt=(await kv.get('inventory:updatedAt'))||null;
-      return res.json({count:items.length,items,updatedAt});
+      const [itemsRaw,updatedAt]=await Promise.all([
+        r.get('inventory:items'),
+        r.get('inventory:updatedAt')
+      ]);
+      const items=itemsRaw?JSON.parse(itemsRaw):[];
+      return res.json({count:items.length,items,updatedAt:updatedAt||null});
     }
 
     if(req.method==='POST'){
-      // Body is raw CSV text (Content-Type: text/csv or text/plain)
       const body=req.body&&typeof req.body==='string'?req.body:await readBody(req);
       const items=parseCsv(body);
       if(items.length===0)return res.status(400).json({error:'CSV is empty, headers not recognised, or no valid rows'});
-      await kv.set('inventory:items',items);
       const now=new Date().toISOString();
-      await kv.set('inventory:updatedAt',now);
+      await Promise.all([
+        r.set('inventory:items',JSON.stringify(items)),
+        r.set('inventory:updatedAt',now)
+      ]);
       return res.json({success:true,count:items.length,updatedAt:now});
     }
 
     if(req.method==='DELETE'){
-      await kv.del('inventory:items');
-      await kv.del('inventory:updatedAt');
+      await Promise.all([
+        r.del('inventory:items'),
+        r.del('inventory:updatedAt')
+      ]);
       return res.json({success:true});
     }
 

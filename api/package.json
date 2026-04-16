@@ -1,6 +1,6 @@
 {
   "dependencies": {
     "node-fetch": "2",
-    "@vercel/kv": "^3.0.0"
+    "ioredis": "^5.4.1"
   }
 }

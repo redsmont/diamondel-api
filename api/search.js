@@ -55,13 +55,29 @@ function stripMarket(arr){return (arr||[]).map(p=>{const{source,unitPrice,priceB
 // Strip inventory-only sensitive fields but KEEP source='inventory' so frontend can badge it
 function stripInventory(arr){return (arr||[]).map(p=>{const{cost,supplier,internalPn,dateLogged,currency,...rest}=p;return rest;});}
 
+let _redis=null;
+function getRedis(){
+  if(_redis)return _redis;
+  const url=process.env.REDIS_URL||process.env.KV_URL;
+  if(!url)return null;
+  const Redis=require('ioredis');
+  _redis=new Redis(url,{
+    maxRetriesPerRequest:2,
+    connectTimeout:5000,
+    enableReadyCheck:false,
+    lazyConnect:false,
+    tls:/^rediss:/.test(url)?{}:undefined
+  });
+  _redis.on('error',e=>console.error('[redis]',e.message));
+  return _redis;
+}
+
 async function searchInventory(q){
   try{
-    if(!(process.env.KV_REST_API_URL||process.env.KV_URL||process.env.REDIS_URL)){
-      return{source:'inventory',count:0,results:[]};
-    }
-    const {kv}=require('@vercel/kv');
-    const items=(await kv.get('inventory:items'))||[];
+    const r=getRedis();
+    if(!r)return{source:'inventory',count:0,results:[]};
+    const raw=await r.get('inventory:items');
+    const items=raw?JSON.parse(raw):[];
     const needle=q.toUpperCase();
     const matches=items.filter(p=>{
       const pn=(p.partNumber||'').toUpperCase();
