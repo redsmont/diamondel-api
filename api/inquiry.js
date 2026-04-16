@@ -56,26 +56,38 @@ function buildMessage(inq){
 }
 
 async function notifyLine(inq){
-  if(!LINE_TOKEN||LINE_TARGETS.length===0)return{skipped:true,reason:'LINE not configured'};
+  if(!LINE_TOKEN)return{skipped:true,reason:'LINE_CHANNEL_ACCESS_TOKEN not set'};
   const text=buildMessage(inq).slice(0,4800);
-  const results=[];
-  for(const to of LINE_TARGETS){
-    try{
-      const r=await fetch('https://api.line.me/v2/bot/message/push',{
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'Authorization':'Bearer '+LINE_TOKEN
-        },
-        body:JSON.stringify({to,messages:[{type:'text',text}]}),
-        timeout:5000
-      });
-      results.push({to,status:r.status,ok:r.ok});
-    }catch(e){
-      results.push({to,error:e.message});
+  if(LINE_TARGETS.length>0){
+    const results=[];
+    for(const to of LINE_TARGETS){
+      try{
+        const r=await fetch('https://api.line.me/v2/bot/message/push',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+LINE_TOKEN},
+          body:JSON.stringify({to,messages:[{type:'text',text}]}),
+          timeout:5000
+        });
+        const body=r.ok?null:await r.text().catch(()=>null);
+        results.push({mode:'push',to,status:r.status,ok:r.ok,body});
+      }catch(e){
+        results.push({mode:'push',to,error:e.message});
+      }
     }
+    return{sent:results};
   }
-  return{sent:results};
+  try{
+    const r=await fetch('https://api.line.me/v2/bot/message/broadcast',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+LINE_TOKEN},
+      body:JSON.stringify({messages:[{type:'text',text}]}),
+      timeout:5000
+    });
+    const body=r.ok?null:await r.text().catch(()=>null);
+    return{sent:[{mode:'broadcast',status:r.status,ok:r.ok,body}]};
+  }catch(e){
+    return{sent:[{mode:'broadcast',error:e.message}]};
+  }
 }
 
 async function readBody(req){
