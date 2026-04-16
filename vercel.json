@@ -5,6 +5,7 @@
   ],
   "routes": [
     { "src": "/search", "dest": "/api/search.js" },
+    { "src": "/inventory", "dest": "/api/inventory.js" },
     { "src": "/(.*)", "dest": "/api/index.js" }
   ]
 }

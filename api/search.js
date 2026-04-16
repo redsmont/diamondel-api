@@ -50,7 +50,30 @@ async function searchMouser(q){
 
 const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD;
 
-function stripSensitive(arr){return (arr||[]).map(p=>{const{source,unitPrice,priceBreaks,currency,...rest}=p;return rest;});}
+// Strip market-API-only sensitive fields (prices, source label)
+function stripMarket(arr){return (arr||[]).map(p=>{const{source,unitPrice,priceBreaks,currency,...rest}=p;return rest;});}
+// Strip inventory-only sensitive fields but KEEP source='inventory' so frontend can badge it
+function stripInventory(arr){return (arr||[]).map(p=>{const{cost,supplier,internalPn,dateLogged,currency,...rest}=p;return rest;});}
+
+async function searchInventory(q){
+  try{
+    if(!(process.env.KV_REST_API_URL||process.env.KV_URL||process.env.REDIS_URL)){
+      return{source:'inventory',count:0,results:[]};
+    }
+    const {kv}=require('@vercel/kv');
+    const items=(await kv.get('inventory:items'))||[];
+    const needle=q.toUpperCase();
+    const matches=items.filter(p=>{
+      const pn=(p.partNumber||'').toUpperCase();
+      const alt=(p.internalPn||'').toUpperCase();
+      return pn.includes(needle)||alt.includes(needle);
+    });
+    matches.sort((a,b)=>(b.quantity||0)-(a.quantity||0));
+    return{source:'inventory',count:matches.length,results:matches};
+  }catch(err){
+    return{source:'inventory',error:err.message,results:[]};
+  }
+}
 
 module.exports=async(req,res)=>{
   res.setHeader('Access-Control-Allow-Origin','*');
@@ -64,14 +87,20 @@ module.exports=async(req,res)=>{
   const token=req.headers['x-admin-token']||'';
   const isAdmin=!!ADMIN_PASSWORD && token===ADMIN_PASSWORD;
 
-  const [digikey,mouser]=await Promise.all([searchDigiKey(q),searchMouser(q)]);
+  const [digikey,mouser,inventory]=await Promise.all([searchDigiKey(q),searchMouser(q),searchInventory(q)]);
 
   if(isAdmin){
-    const combined=[...(digikey.results||[]),...(mouser.results||[])];
-    return res.json({keyword:q,sources:{digikey,mouser},count:combined.length,results:combined});
+    const combined=[...(inventory.results||[]),...(digikey.results||[]),...(mouser.results||[])];
+    return res.json({keyword:q,sources:{inventory,digikey,mouser},count:combined.length,results:combined});
   }
 
-  const combined=[...stripSensitive(digikey.results),...stripSensitive(mouser.results)];
-  combined.sort((a,b)=>(b.quantity||0)-(a.quantity||0));
+  const combined=[...stripInventory(inventory.results),...stripMarket(digikey.results),...stripMarket(mouser.results)];
+  // Keep inventory at top, then market results by quantity desc
+  combined.sort((a,b)=>{
+    const ao=a.source==='inventory'?0:1;
+    const bo=b.source==='inventory'?0:1;
+    if(ao!==bo)return ao-bo;
+    return (b.quantity||0)-(a.quantity||0);
+  });
   res.json({keyword:q,count:combined.length,results:combined});
 };
