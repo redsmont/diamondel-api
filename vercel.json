@@ -7,6 +7,8 @@
     { "src": "/search", "dest": "/api/search.js" },
     { "src": "/inventory", "dest": "/api/inventory.js" },
     { "src": "/inquiry", "dest": "/api/inquiry.js" },
+    { "src": "/transfer", "dest": "/api/transfer.js" },
+    { "src": "/line-hook", "dest": "/api/line-hook.js" },
     { "src": "/(.*)", "dest": "/api/index.js" }
   ]
 }

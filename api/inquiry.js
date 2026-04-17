@@ -177,7 +177,7 @@ module.exports=async(req,res)=>{
       const raw=await r.get('inquiry:'+id);
       if(!raw)return res.status(404).json({error:'Not found'});
       const inq=JSON.parse(raw);
-      const valid=['pending','quoted','won','closed'];
+      const valid=['pending','quoted','won','closed','transferred'];
       if(body.status&&valid.includes(body.status))inq.status=body.status;
       if(body.addNote&&String(body.addNote).trim()){
         inq.internalNotes=inq.internalNotes||[];
