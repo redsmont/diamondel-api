@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "node-fetch": "2",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "web-push": "^3.6.7"
   }
 }
