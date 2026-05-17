@@ -152,6 +152,28 @@ module.exports=async(req,res)=>{
       await r.zadd('inquiries:all',Date.now(),id);
 
       const notified=await notifyLine(inquiry);
+
+      // 通知 CRM 前端（SocketIO 即時彈窗）
+      try{
+        await fetch('https://crm.sdiamondel.com/webhook',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            event:'web_inquiry',
+            data:{
+              part_number:(inquiry.parts||[])[0]?.pn||'',
+              company:(inquiry.contact||{}).company||'',
+              contact:(inquiry.contact||{}).name||'',
+              phone:(inquiry.contact||{}).phone||'',
+              parts:inquiry.parts||[],
+              notes:inquiry.notes||'',
+              id:id
+            }
+          }),
+          timeout:5000
+        });
+      }catch(e){}
+
       return res.json({success:true,id,notified});
     }
 
