@@ -151,6 +151,29 @@ module.exports=async(req,res)=>{
       await r.set('inquiry:'+id,JSON.stringify(inquiry));
       await r.zadd('inquiries:all',Date.now(),id);
 
+      // 同步到 Supabase web_inquiries 表（CRM 讀這裡）
+      const SB_URL=process.env.SUPABASE_URL;
+      const SB_KEY=process.env.SUPABASE_SERVICE_KEY;
+      if(SB_URL&&SB_KEY){
+        try{
+          const partsList=parts.map(p=>p.pn||p.partNumber||'').filter(Boolean).join(', ');
+          await fetch(SB_URL+'/rest/v1/web_inquiries',{
+            method:'POST',
+            headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+            body:JSON.stringify({
+              part_number:partsList||(inquiry.notes||'').slice(0,100),
+              quantity:parts[0]?.qty||null,
+              company_name:contact.company||null,
+              contact_name:contact.name||null,
+              email:contact.email||null,
+              phone:contact.phone||null,
+              note:inquiry.notes||null,
+              status:'pending'
+            })
+          });
+        }catch(e){console.error('[Supabase sync]',e.message);}
+      }
+
       const notified=await notifyLine(inquiry);
 
       // 通知 CRM 前端（SocketIO 即時彈窗）
