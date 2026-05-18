@@ -200,6 +200,20 @@ module.exports=async(req,res)=>{
       return res.json({success:true,id,notified});
     }
 
+    // Public: member inquiry history by email
+    if(req.method==='GET'&&req.query&&req.query.email&&!isAdmin(req)){
+      const email=String(req.query.email).toLowerCase().trim();
+      if(!email)return res.status(400).json({error:'email required'});
+      const ids=await r.zrange('inquiries:all',0,-1,'REV');
+      if(ids.length===0)return res.json({count:0,inquiries:[]});
+      const keys=ids.map(id=>'inquiry:'+id);
+      const raw=await r.mget(...keys);
+      const all=raw.filter(Boolean).map(s=>{try{return JSON.parse(s);}catch(e){return null;}}).filter(Boolean);
+      const mine=all.filter(i=>i.contact&&(i.contact.email||'').toLowerCase()===email)
+        .map(i=>({id:i.id,createdAt:i.createdAt,status:i.status,parts:i.parts,notes:i.notes}));
+      return res.json({count:mine.length,inquiries:mine});
+    }
+
     // All following are admin-only
     if(!isAdmin(req))return res.status(401).json({error:'Unauthorized'});
 
